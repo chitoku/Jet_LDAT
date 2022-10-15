@@ -7,13 +7,15 @@
 #define TFT_OSCOPE_X1 310
 #define TFT_OSCOPE_Y0 40
 #define TFT_OSCOPE_Y1 90
+#define TFT_LED_PULSE_H 15
 int oscope_scanline_x = TFT_OSCOPE_X0;
 int oscope_blip_height;
 int oscope_blip_height_old;
 
 #define PIN_LED 1
 bool led_left_on = false;
-#define SENSOR_THRESHOLD 500
+#define SENSOR_THRESHOLD 600
+int oscope_threshold_y = map(SENSOR_THRESHOLD, 0, 1023, TFT_OSCOPE_Y1, TFT_OSCOPE_Y0);
 
 #include "SAMDTimerInterrupt.h"
 #include "SAMD_ISR_Timer.h"
@@ -26,6 +28,8 @@ bool led_left_on = false;
 
 #define TIMER_INTERVAL_US_FLASHLED            500000L
 #define INTERVAL_UNIT_FLASHLED          (TIMER_INTERVAL_US_FLASHLED / HW_TIMER_INTERVAL_US) // 5000 unit
+#define DURATION_IN_US_LEDON                   10000L       // 10 ms --> 2 scan line
+#define DURATION_IN_UNIT_LEDON          (DURATION_IN_US_LEDON / HW_TIMER_INTERVAL_US) // 100 unit
 
 // Init selected SAMD timer
 #define SELECTED_TIMER      TIMER_TC3
@@ -47,29 +51,35 @@ void TimerHandler(void)
 
   static int index  = 0; 
   static int lastFlashIndex = 0;
-  static bool flashed = false;
+  static bool sensed = false;
 
   // Every 1 run
   brightness = analogRead(WIO_LIGHT);
-  if(brightness > SENSOR_THRESHOLD && flashed){
-    flashed = false;
+  if(brightness > SENSOR_THRESHOLD && !sensed){
+    sensed = true;
     if(lastFlashIndex > index){
       latencyUnits = index + HW_TIMER_FREQ_IN_HZ - lastFlashIndex;
     }else{
       latencyUnits = index - lastFlashIndex;
     }
-    Serial.print("Latency (unit): ");
     Serial.println(latencyUnits);
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(1);
+    tft.drawString("String", oscope_scanline_x, TFT_OSCOPE_Y1 + 10 );
   }
 
+  if(index > lastFlashIndex + DURATION_IN_UNIT_LEDON){
+    byInterruptTurnOffLED();    
+  }  
+
   if (index % INTERVAL_UNIT_SCANUPDATE == 0 ){
-    byInterruptUpdateOscope();
+    byInterruptUpdateOscope(led_left_on);
   }
   
   if (index % INTERVAL_UNIT_FLASHLED == 0){
     lastFlashIndex = index;
-    flashed = true;
-    byInterruptFlashLED();
+    sensed = false;
+    byInterruptTurnOnLED();
   }
 
   index++;
@@ -78,18 +88,20 @@ void TimerHandler(void)
   }
 }
 
-void byInterruptUpdateOscope()
+void byInterruptUpdateOscope(bool led_left_on)
 {
   tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0, TFT_BG_COLOR);
   tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y1 - oscope_blip_height, oscope_blip_height, TFT_GREENYELLOW);
+  if(led_left_on){
+    tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y0, TFT_LED_PULSE_H, TFT_CYAN);    
+  }
+  if(oscope_scanline_x % 4 > 2){
+    tft.drawPixel(oscope_scanline_x, oscope_threshold_y, TFT_ORANGE);    
+  }
   
   oscope_blip_height = map(brightness, 0, 1023, 0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0) + 1;
   oscope_scanline_x++;
   // tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y1 - oscope_blip_height, oscope_blip_height, TFT_YELLOW);
-
-  if (led_left_on){
-    digitalWrite(PIN_LED, HIGH); // LED is left on for TIMER_INTERVAL_SCANUPDATE (5ms)
-  }
 
   if(oscope_scanline_x >= TFT_OSCOPE_X1){
     oscope_scanline_x = TFT_OSCOPE_X0;
@@ -98,9 +110,14 @@ void byInterruptUpdateOscope()
   tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0, TFT_YELLOW);
 }
 
-void byInterruptFlashLED(){ 
+void byInterruptTurnOnLED(){ 
   digitalWrite(PIN_LED, LOW);
   led_left_on = true;
+}
+
+void byInterruptTurnOffLED(){ 
+  digitalWrite(PIN_LED, HIGH);
+  led_left_on = false;
 }
 
 void setup() {
@@ -119,6 +136,7 @@ void setup() {
 
   tft.fillScreen(TFT_BG_COLOR);
   drawHeader();
+  tft.drawFastHLine(TFT_OSCOPE_X0, TFT_OSCOPE_Y0-1, TFT_OSCOPE_X1-TFT_OSCOPE_X0, TFT_CYAN);
   
   // Interval in millisecs
   // if (ITimer.attachInterruptInterval_MS(HW_TIMER_INTERVAL_MS, TimerHandler))
