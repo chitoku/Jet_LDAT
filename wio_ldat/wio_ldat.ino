@@ -39,8 +39,10 @@ TFT_eSprite spr = TFT_eSprite(&tft);  // Sprite
 #define TFT_OSCOPE_X0 10
 #define TFT_OSCOPE_X1 310
 #define TFT_OSCOPE_Y0 40
-#define TFT_OSCOPE_Y1 90
-Oscope oscope(TFT_OSCOPE_X0, TFT_OSCOPE_Y0, TFT_OSCOPE_X1-TFT_OSCOPE_X0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0);
+#define TFT_OSCOPE_Y1 100
+Oscope oscope(TFT_OSCOPE_X0, TFT_OSCOPE_Y0, 
+  TFT_OSCOPE_X1-TFT_OSCOPE_X0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0,
+  (HardwareSerial*)&Serial);
 
 int brightness;
 int latency_in_unit;
@@ -62,21 +64,22 @@ void TimerHandler(void)
 
   static int index  = 0; 
   static int lastFlashIndex = 0;
-  static int lastRiseIndex = 0;
-  static bool riseTriggered = false;
+  static bool triggerReady = false;
 
   // Every 1 run
   brightness = analogRead(WIO_LIGHT);
-  if(brightness > SENSOR_THRESHOLD && !riseTriggered){
-    riseTriggered = true;
-    if(lastRiseIndex > index){
-      latency_in_unit = index + HW_TIMER_FREQ_IN_HZ - lastRiseIndex;
+  if(brightness > SENSOR_THRESHOLD && triggerReady){
+    triggerReady = false;
+    if(lastFlashIndex > index){
+      latency_in_unit = index + HW_TIMER_FREQ_IN_HZ - lastFlashIndex;
     }else{
-      latency_in_unit = index - lastRiseIndex;
+      latency_in_unit = index - lastFlashIndex;
     }
     Serial.print(latency_in_unit/10);
     Serial.print(".");
     Serial.println(latency_in_unit%10);
+    // Serial.print("         index: "); Serial.println(index);
+    // Serial.print("lastFlashIndex: "); Serial.println(lastFlashIndex);
   }
 
   // For every (50) unit, update the oscope with 1 new scanline
@@ -86,14 +89,17 @@ void TimerHandler(void)
   
   // For every (5000) unit, flash the LED
   if (index % interval_in_unit_flashLED == 0){
+    triggerReady = true; // enable lightsensor to generate trigger
     lastFlashIndex = index;
     led_onoff = true;
+    digitalWrite(PIN_LED, !led_onoff);
     led_updated = true;
   }
 
-  // (500) unit after LED flash, flash the LED
-  if (index > lastFlashIndex + duration_in_unit_ledOn){
+  // (500) unit after LED flash, turn off the LED
+  if (index > lastFlashIndex + duration_in_unit_ledOn && led_onoff){
     led_onoff = false;
+    digitalWrite(PIN_LED, !led_onoff);
     led_updated = true;
   }
 
@@ -105,44 +111,8 @@ void TimerHandler(void)
   time2 = micros();
 }
 
-void updateOscope()
-{
-  // tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0, TFT_BG_COLOR);
-  // if(brightness>SENSOR_THRESHOLD){
-  //   tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y1 - oscope_blip_height, oscope_blip_height, TFT_YELLOW);
-  // }else{
-  //   tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y1 - oscope_blip_height, oscope_blip_height, TFT_OLIVE);
-  // }
-  // if(led_onoff){
-  //   tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y0, TFT_LED_PULSE_H, TFT_CYAN);    
-  // }
-  // if(oscope_scanline_x % 4 > 2){
-  //   tft.drawPixel(oscope_scanline_x, oscope_threshold_y, TFT_ORANGE);    
-  // }
-  
-  // oscope_blip_height = map(brightness, 0, 1023, 0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0) + 1;
-  // oscope_scanline_x++;
-  // // tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y1 - oscope_blip_height, oscope_blip_height, TFT_YELLOW);
-
-  // if(oscope_scanline_x >= TFT_OSCOPE_X1){
-  //   oscope_scanline_x = TFT_OSCOPE_X0;
-  //   //tft.fillRect(TFT_OSCOPE_X0, TFT_OSCOPE_Y0, TFT_OSCOPE_X1-TFT_OSCOPE_X0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0, TFT_BG_COLOR);
-  // }
-  // tft.drawFastVLine(oscope_scanline_x, TFT_OSCOPE_Y0, TFT_OSCOPE_Y1-TFT_OSCOPE_Y0, TFT_YELLOW);
-}
-
-void byInterruptTurnOnLED(){ 
-  digitalWrite(PIN_LED, LOW);
-  led_left_on = true;
-}
-
-void byInterruptTurnOffLED(){ 
-  digitalWrite(PIN_LED, HIGH);
-  led_left_on = false;
-}
-
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   while (!Serial && millis() < 5000);
 
   pinMode(WIO_LIGHT, INPUT);
@@ -179,9 +149,9 @@ void drawHeader(){
 void loop() {
   if(oscope_updated){
     oscope_updated = false;
-
-    //oscope_scanline_x++;
-    //if(oscope_scanline_x > TFT_OSCOPE_X1){ oscope_scanline_x = TFT_OSCOPE_X0; }
-
+    oscope.drawNextLine(led_onoff, brightness);
   }
+  // if(led_updated){
+  //   digitalWrite(PIN_LED, !led_onoff);
+  // }
 }
