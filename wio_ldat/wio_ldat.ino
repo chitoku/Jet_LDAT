@@ -46,12 +46,17 @@ Oscope oscope(TFT_OSCOPE_X0, TFT_OSCOPE_Y0,
 
 int brightness;
 int latency_in_unit;
-bool latency_in_unit_updated = false;
+bool latency_updated = false;
 
 bool oscope_updated = false;
 
 bool led_onoff = false;
 bool led_updated = false;
+
+bool interrupt_time_violation = false;
+int violation_count = 0;
+int violation_indexes[256];
+int violation_time_in_us[256];
 
 void TimerHandler(void)
 {
@@ -75,11 +80,14 @@ void TimerHandler(void)
     }else{
       latency_in_unit = index - lastFlashIndex;
     }
-    Serial.print(latency_in_unit/10);
-    Serial.print(".");
-    Serial.println(latency_in_unit%10);
-    // Serial.print("         index: "); Serial.println(index);
-    // Serial.print("lastFlashIndex: "); Serial.println(lastFlashIndex);
+    // ### Un-comment the following 5 lines to test 
+    // ### if the sketch can detect the ISR timing violation by itself.
+    // Serial.print("|         index: "); Serial.println(index);
+    // Serial.print("|lastFlashIndex: "); Serial.println(lastFlashIndex);
+    // Serial.print(latency_in_unit/10);
+    // Serial.print(".");
+    // Serial.println(latency_in_unit%10);
+    latency_updated = true;
   }
 
   // For every (50) unit, update the oscope with 1 new scanline
@@ -109,6 +117,13 @@ void TimerHandler(void)
   }
 
   time2 = micros();
+
+  if (time2 - time1 > HW_TIMER_INTERVAL_IN_US){
+    interrupt_time_violation = true;
+    violation_indexes[violation_count] = index;
+    violation_time_in_us[violation_count] = time2 - time1;
+    violation_count++;
+  }
 }
 
 void setup() {
@@ -147,6 +162,13 @@ void drawHeader(){
 }
 
 void loop() {
+  if(latency_updated){
+    Serial.print(latency_in_unit/10);
+    Serial.print(".");
+    Serial.println(latency_in_unit%10);
+    latency_updated = false;
+  }
+
   if(oscope_updated){
     oscope_updated = false;
     oscope.drawNextLine(led_onoff, brightness);
@@ -154,4 +176,20 @@ void loop() {
   // if(led_updated){
   //   digitalWrite(PIN_LED, !led_onoff);
   // }
+
+  if(interrupt_time_violation){
+    Serial.print("[WARN] ISR taking too long: [");
+    Serial.print(violation_count);
+    Serial.println("] times");
+    for(int i=0; i<violation_count; i++){
+      Serial.print(violation_time_in_us[i]);
+      Serial.print("us(#");
+      Serial.print(violation_indexes[i]);
+      Serial.print("), ");
+    }
+    Serial.print(" --> total violoation: ");
+    Serial.println(violation_count);
+    violation_count = 0;
+    interrupt_time_violation = false;
+  }
 }
