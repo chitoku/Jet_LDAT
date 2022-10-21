@@ -1,6 +1,7 @@
 #include "TFT_eSPI.h"
 // #include "Free_Fonts.h" //include the header file
 #include "Oscope.h"
+#include "Topmenu.h"
 
 #define PIN_LED 1
 bool led_left_on = false;
@@ -36,8 +37,16 @@ int duration_in_unit_ledOn = duration_in_us_ledOn / HW_TIMER_INTERVAL_IN_US; // 
 TFT_eSPI tft;
 TFT_eSprite spr = TFT_eSprite(&tft);  // Sprite
 
-#define TFT_OSCOPE_X0 10
-#define TFT_OSCOPE_X1 310
+#define TFT_TOPMENU_X0 20
+#define TFT_TOPMENU_X1 320
+#define TFT_TOPMENU_Y0 0
+#define TFT_TOPMENU_Y1 30
+Topmenu topmenu(TFT_TOPMENU_X0, TFT_TOPMENU_Y0, 
+  TFT_TOPMENU_X1-TFT_TOPMENU_X0, TFT_TOPMENU_Y1-TFT_TOPMENU_Y0,
+  (HardwareSerial*)&Serial);
+
+#define TFT_OSCOPE_X0 20
+#define TFT_OSCOPE_X1 320
 #define TFT_OSCOPE_Y0 40
 #define TFT_OSCOPE_Y1 100
 Oscope oscope(TFT_OSCOPE_X0, TFT_OSCOPE_Y0, 
@@ -141,7 +150,9 @@ void setup() {
   digitalWrite(LCD_BACKLIGHT, HIGH);
 
   tft.fillScreen(TFT_BLACK);
-  drawHeader();
+  topmenu.init(tft);
+  topmenu.drawFull();
+
   oscope.init(tft);
   oscope.drawZeroLines();
   
@@ -154,11 +165,6 @@ void setup() {
   else
     Serial.println(F("Can't set ITimer. Select another freq. or timer"));
 
-}
-
-void drawHeader(){
-  tft.setTextSize(2);
-  tft.drawString("Header text 0123",10,10);
 }
 
 void loop() {
